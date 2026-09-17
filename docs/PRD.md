@@ -122,7 +122,8 @@ Hoviyat ships with English and Farsi (fa) support from Phase 1, reflecting the p
 - Authenticates against Hoviyat's own auth APIs (dogfooding), same as Phase 2.
 - Self-service login/signup UI (password, OAuth2/OIDC, SSO redirect flows).
 - MFA enrollment and management (TOTP setup, backup codes, OTP delivery preference).
-- Profile & session management (view active sessions/devices, revoke a session, change password).
+- Profile & session management: list active sessions with device type, approximate location, and last-active timestamp; revoke an individual session; "log out everywhere" (revoke all but the current session); email alert on login from a new/unrecognized device or location; change password.
+- Developer portal: self-service registration of third-party OAuth2/OIDC client apps ("Login with Hoviyat"), issuing client_id/secret immediately without operator approval (§9 IdP client registration).
 - Consent screens for OAuth2/OIDC flows where Hoviyat acts as an identity provider to third-party apps.
 - GDPR self-service: data export and account deletion requests.
 
@@ -179,17 +180,20 @@ Hoviyat ships with English and Farsi (fa) support from Phase 1, reflecting the p
 - **Custom domains:** required — tenants can use their own domain for hosted login/consent pages, not just a shared Hoviyat domain.
 - **IdP role:** Hoviyat acts as both a relying party (consuming Google/GitHub OAuth2, generic OIDC, and SAML 2.0 for login) and an identity provider — third-party apps can integrate "Login with Hoviyat" via OAuth2/OIDC, requiring standard IdP capabilities (client/app registration, consent screens in Phase 3, token issuance to third parties, scopes/claims).
 - **Hosting model:** self-hosted OSS only for Phases 1–3; no managed/hosted SaaS ("Hoviyat Cloud") is in scope.
+- **IdP client registration:** self-service developer portal — any tenant admin (or a dedicated "developer" role, delegable via the granular admin-role system in §6) can register a third-party client app and receive a client_id/secret immediately, without platform-operator approval, mirroring the Google/GitHub OAuth app-registration model.
+- **Tenant signup review:** near-instant, automated activation after email verification for the large majority of self-service signups. There is no blanket manual-review queue every tenant waits behind; instead, risk signals (disposable email domains, abuse-pattern IP/rate-limit triggers, etc.) route only flagged signups to manual platform-operator review. This avoids the review queue becoming an onboarding bottleneck while keeping the four-layer abuse controls (§6) for genuinely suspicious signups.
+- **Cache invalidation:** push-based invalidation on write. Every ACL/role/policy change immediately invalidates the relevant Redis/OPA cache entries (via pub/sub or direct delete) rather than relying on a TTL — chosen over TTL-based staleness because a revoked permission remaining honored for even a few seconds is unacceptable for a security-sensitive authorization system. This adds write-path complexity (the write must fan out invalidation before returning success) but keeps the sub-100ms read-path budget intact.
+- **Phase 3 session management UX:** end users can (a) list their active sessions with device type, approximate location (IP geolocation), and last-active timestamp; (b) revoke an individual session/device; (c) "log out everywhere" — revoke all sessions except the current one in one action; and (d) receive an email alert on login from a new/unrecognized device or location.
 
 **Non-engineering prerequisite:** a formal Terms of Service and Privacy Policy must be drafted (legal, not engineering scope) before self-service tenant signup (§6 Multi-tenancy) goes live in production — required given self-service signup collects PII and Phase 1 commits to GDPR handling (§6 Compliance & observability). This is tracked as a required deliverable, not merely a nice-to-have, and blocks production launch of self-service signup specifically (other Phase 1 functionality is not blocked by it).
 
 ## 10. Open questions
 
 - Specific SAML/OIDC vendor quirks (Okta, Azure AD, Google Workspace) — deferred until a tenant requires one; will need per-vendor validation once identified.
-- IdP client/app registration model: how do third-party apps register as OAuth2/OIDC clients of Hoviyat (self-service developer portal vs. operator-provisioned), and what scopes/claims are exposed by default?
-- Manual review queue SLA: how quickly must a pending tenant be reviewed/activated, and who is on the hook for that (platform operator on-call, async queue)?
+- Default OAuth2/OIDC scopes/claims exposed by the IdP client-registration flow (§9) — the registration model itself is decided; the default scope/claim set still needs to be enumerated during technical design.
+- Exact risk-signal rules for routing a self-service signup to manual review (§9) — "disposable email domains, abuse-pattern triggers" is directional, not an exhaustive, implementable rule set yet.
 - Audit log retention period: not yet specified — needs a decision (e.g. 1-year tenant-configurable vs. longer regulatory-grade window) before Phase 1's compliance features are complete.
 - Custom domain TLS provisioning flow: exact ACME/cert-issuance mechanism and how quickly a newly-added custom domain becomes active.
-- Redis/OPA cache invalidation strategy details: push-based invalidation on ACL write vs. short TTL with acceptable staleness window — affects both consistency and the latency budget.
 
 ## 11. Licensing & project model
 
