@@ -32,7 +32,9 @@ func main() {
 
 	authHandler := api.NewAuthHandler(authService)
 	userHandler := api.NewUserHandler(users)
-	router := api.NewRouter(authHandler, userHandler, tokens, rbac)
+	tenantService := service.NewTenantService(tenants)
+	tenantHandler := api.NewTenantHandler(tenantService)
+	router := api.NewRouter(authHandler, userHandler, tenantHandler, tokens, rbac)
 
 	log.Printf("hoviyat listening on %s", cfg.HTTPAddr)
 	if err := router.Run(cfg.HTTPAddr); err != nil {

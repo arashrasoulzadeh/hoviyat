@@ -56,7 +56,8 @@ func (f *fakeUserRepository) FindByID(_ context.Context, id string) (*domain.Use
 // fakeTenantRepository and fakeMembershipRepository mirror the doubles in
 // internal/service's tests; kept local since those are unexported there.
 type fakeTenantRepository struct {
-	byID map[string]*domain.Tenant
+	byID   map[string]*domain.Tenant
+	nextID int
 }
 
 func newFakeTenantRepository() *fakeTenantRepository {
@@ -64,6 +65,10 @@ func newFakeTenantRepository() *fakeTenantRepository {
 }
 
 func (f *fakeTenantRepository) Create(_ context.Context, tenant *domain.Tenant) error {
+	if tenant.ID == "" {
+		f.nextID++
+		tenant.ID = string(rune('A' + f.nextID))
+	}
 	if _, exists := f.byID[tenant.ID]; exists {
 		return domain.ErrTenantAlreadyExists
 	}
@@ -167,7 +172,9 @@ func newTestRouter() (*gin.Engine, *fakeTenantRepository) {
 
 	authHandler := api.NewAuthHandler(authService)
 	userHandler := api.NewUserHandler(repo)
-	return api.NewRouter(authHandler, userHandler, tokens, rbac), tenants
+	tenantService := service.NewTenantService(tenants)
+	tenantHandler := api.NewTenantHandler(tenantService)
+	return api.NewRouter(authHandler, userHandler, tenantHandler, tokens, rbac), tenants
 }
 
 func doJSON(router http.Handler, method, path string, body any, bearer string) *httptest.ResponseRecorder {
@@ -243,5 +250,98 @@ func TestLoginRejectsBadCredentials(t *testing.T) {
 	}, "")
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401, body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestTenantProvisioningAndSwitch(t *testing.T) {
+	router, _ := newTestRouter()
+
+	regRec := doJSON(router, http.MethodPost, "/api/v1/auth/register", map[string]string{
+		"email":    "frank@example.com",
+		"password": "correct-horse-battery",
+	}, "")
+	if regRec.Code != http.StatusCreated {
+		t.Fatalf("register status = %d, body = %s", regRec.Code, regRec.Body.String())
+	}
+	var reg struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal(regRec.Body.Bytes(), &reg); err != nil {
+		t.Fatalf("decode register response: %v", err)
+	}
+
+	createRec := doJSON(router, http.MethodPost, "/api/v1/tenants", map[string]string{
+		"name": "Acme Inc",
+		"slug": "acme-inc",
+	}, reg.AccessToken)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create tenant status = %d, body = %s", createRec.Code, createRec.Body.String())
+	}
+	var tenant struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(createRec.Body.Bytes(), &tenant); err != nil {
+		t.Fatalf("decode create-tenant response: %v", err)
+	}
+	if tenant.ID == "" {
+		t.Fatal("create tenant response missing id")
+	}
+
+	suspendRec := doJSON(router, http.MethodPost, "/api/v1/tenants/"+tenant.ID+"/suspend", nil, reg.AccessToken)
+	if suspendRec.Code != http.StatusNoContent {
+		t.Fatalf("suspend tenant status = %d, body = %s", suspendRec.Code, suspendRec.Body.String())
+	}
+
+	reactivateRec := doJSON(router, http.MethodPost, "/api/v1/tenants/"+tenant.ID+"/reactivate", nil, reg.AccessToken)
+	if reactivateRec.Code != http.StatusNoContent {
+		t.Fatalf("reactivate tenant status = %d, body = %s", reactivateRec.Code, reactivateRec.Body.String())
+	}
+
+	// A second user joins the newly-created tenant at registration time
+	// (first member of a tenant provisions it with the admin role), then
+	// switches into it to receive a tenant-scoped token.
+	memberRegRec := doJSON(router, http.MethodPost, "/api/v1/auth/register", map[string]string{
+		"email":     "gina@example.com",
+		"password":  "correct-horse-battery",
+		"tenant_id": tenant.ID,
+	}, "")
+	if memberRegRec.Code != http.StatusCreated {
+		t.Fatalf("member register status = %d, body = %s", memberRegRec.Code, memberRegRec.Body.String())
+	}
+	var memberReg struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal(memberRegRec.Body.Bytes(), &memberReg); err != nil {
+		t.Fatalf("decode member register response: %v", err)
+	}
+
+	switchRec := doJSON(router, http.MethodPost, "/api/v1/auth/switch-tenant", map[string]string{
+		"tenant_id": tenant.ID,
+	}, memberReg.AccessToken)
+	if switchRec.Code != http.StatusOK {
+		t.Fatalf("switch-tenant status = %d, body = %s", switchRec.Code, switchRec.Body.String())
+	}
+	var switched struct {
+		TenantID string   `json:"tenant_id"`
+		Roles    []string `json:"roles"`
+	}
+	if err := json.Unmarshal(switchRec.Body.Bytes(), &switched); err != nil {
+		t.Fatalf("decode switch-tenant response: %v", err)
+	}
+	if switched.TenantID != tenant.ID {
+		t.Fatalf("switch-tenant tenant_id = %q, want %q", switched.TenantID, tenant.ID)
+	}
+	if len(switched.Roles) != 1 || switched.Roles[0] != "admin" {
+		t.Fatalf("switch-tenant roles = %v, want [admin]", switched.Roles)
+	}
+}
+
+func TestSwitchTenantRequiresAuth(t *testing.T) {
+	router, _ := newTestRouter()
+	rec := doJSON(router, http.MethodPost, "/api/v1/auth/switch-tenant", map[string]string{
+		"tenant_id": "some-tenant",
+	}, "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
 	}
 }
