@@ -53,6 +53,7 @@ Hoviyat ships with English and Farsi (fa) support from Phase 1, reflecting the p
 - JWT-based access + refresh token issuance, rotation, and revocation.
 - OAuth2/OIDC login (Google, GitHub, and generic OIDC provider config).
 - SSO via SAML 2.0 and OIDC for enterprise tenants.
+- SCIM 2.0 support for automated user provisioning/deprovisioning from enterprise IdPs (Okta, Azure AD), plus CSV bulk import as a simpler manual fallback for tenants without SCIM-capable directories.
 - MFA: TOTP (authenticator apps), plus email/SMS OTP as secondary factors.
 - Password reset, account lockout/rate limiting on failed attempts.
 - Password policy: configurable per-tenant complexity rules (min length, character classes), breached-password check against a service like HaveIBeenPwned at signup/reset, and a passwordless login option (magic link and/or WebAuthn) as an alternative to password+MFA.
@@ -71,6 +72,7 @@ Hoviyat ships with English and Farsi (fa) support from Phase 1, reflecting the p
 - ACL: resource-level grant/deny entries for exceptions beyond role defaults.
 - ABAC: policy engine (OPA/Rego) evaluating attribute-based rules (user attributes, resource attributes, environment/context) for complex conditional access.
 - Unified authorization decision API: a single "can user X do action Y on resource Z" check that evaluates RBAC → ACL → ABAC policy layers.
+- Admin-panel permissions are not a separate system: administrative capabilities (user.manage, role.manage, policy.manage, audit.view, billing.manage-equivalent, etc.) are themselves ordinary RBAC permissions, evaluated through the same unified decision API. This lets a tenant admin delegate granular admin roles (e.g. "user admin" vs. "policy admin") to other users rather than only offering all-or-nothing tenant-admin access.
 - Policy versioning and dry-run/simulation endpoint (test a policy change before activating it).
 
 **Integration surface**
@@ -79,6 +81,7 @@ Hoviyat ships with English and Farsi (fa) support from Phase 1, reflecting the p
 - Go middleware package for HTTP frameworks (net/http, chi, gin, echo) to protect routes.
 - Go client SDK wrapping REST/gRPC calls.
 - Custom domains: tenants can point their own domain (e.g. `login.theirapp.com`) at Hoviyat's hosted login/consent pages, with per-tenant TLS certificate provisioning (e.g. via ACME/Let's Encrypt) rather than a shared domain only.
+- Per-tenant branding: tenants can customize the hosted login/consent pages their end users see (logo, colors, tenant name) alongside custom domains. The admin panel itself (Phase 2) stays Hoviyat-branded, not white-labeled — branding customization applies to the Phase 3 end-user-facing surface only.
 - Machine-to-machine (service) auth: static, per-service API keys (issued/rotated via the admin API, scoped to a tenant and a set of permissions), sent as a request header — no OAuth2 client_credentials flow or mTLS in Phase 1.
 - JWT signing keys are rotated automatically on a schedule; Hoviyat exposes a JWKS endpoint so integrating services/SDKs can validate tokens against current and recently-rotated keys without manual key distribution.
 
@@ -104,12 +107,14 @@ Hoviyat ships with English and Farsi (fa) support from Phase 1, reflecting the p
 
 - Authenticates against Hoviyat's own auth APIs (dogfooding) — admins and platform operators log in the same way any integrating app's users would, exercising the product end-to-end.
 - Web UI for tenant admins and platform operators.
-- User management (invite, suspend, delete, reset MFA).
-- Role & permission management (create roles, assign permissions, role hierarchy editor).
+- User management (invite, suspend, delete, reset MFA), including bulk CSV import and SCIM directory sync configuration/status (Phase 1 SCIM/CSV APIs, §6 Identity & authentication).
+- Role & permission management (create roles, assign permissions, role hierarchy editor), including delegating granular admin roles (user admin, policy admin, audit viewer, etc.) rather than only full tenant-admin access.
 - ACL editor for resource-level exceptions.
 - ABAC/OPA policy editor with dry-run/simulation UI, using Phase 1's simulation endpoint.
 - Audit log viewer with filtering/export.
 - Access review dashboard (SOC2 reports).
+- Branding settings for the tenant's hosted login/consent pages (logo, colors, custom domain) — the admin panel UI itself is not white-labeled.
+- In-app and email alerts for security-relevant events (new admin added, suspicious login pattern, self-service tenant pending review, policy change by another admin).
 - Tenant provisioning UI (platform-operator scope only).
 
 ### Phase 3 — End-user front-end panel (React)
