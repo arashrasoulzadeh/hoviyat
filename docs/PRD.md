@@ -10,6 +10,8 @@
 
 Hoviyat is a multi-tenant authentication and authorization platform written in Go, providing identity management, RBAC/ACL/ABAC-based access control, and a policy engine (OPA) for fine-grained, attribute-based decisions. It exposes REST and gRPC APIs plus a Go middleware/SDK for service integration, backed by PostgreSQL and Redis, and is designed for high availability across multiple regions.
 
+Hoviyat is self-hosted open source only — there is no managed/hosted SaaS offering ("Hoviyat Cloud") in scope for Phases 1–3; operators deploy and run their own instance.
+
 Delivery is phased:
 - **Phase 1** — Core auth/authz backend (this PRD's primary scope)
 - **Phase 2** — React admin panel (tenant/org administration, role & policy management)
@@ -57,9 +59,12 @@ Hoviyat ships with English and Farsi (fa) support from Phase 1, reflecting the p
 - Identity provider (IdP) role: Hoviyat can also issue OAuth2/OIDC tokens to registered third-party client applications ("Login with Hoviyat"), in addition to consuming external providers as a relying party. Phase 1 covers client/app registration and token issuance APIs; consent-screen UI ships in Phase 3.
 
 **Multi-tenancy**
-- Tenant (organization) as a first-class entity; all users, roles, policies, and audit logs scoped to a tenant.
+- Tenant (organization) as a first-class entity; all roles, policies, and audit logs scoped to a tenant.
 - Tenant-level isolation of data at the storage layer (row-level scoping, tenant_id on all tables).
 - Tenant provisioning API (create/suspend/delete tenant).
+- A single user account (identity) can belong to multiple tenants, each with its own role/team memberships — analogous to Slack/GitHub org membership. Requires a tenant-switcher UX in Phase 2/3 and per-tenant scoping on every authorization check (a user's permissions in tenant A never leak into tenant B).
+- Support impersonation: platform operators (and, where a tenant permits it, tenant admins) can start an impersonated session as another user for support/debugging. Every impersonated session is fully audit-logged (who impersonated whom, when, and what actions were taken while impersonating), and the impersonated user's own session is visibly marked/notifiable.
+- Session/device policy: no hard cap on concurrent sessions per user; the refresh token lifetime (tenant-configurable, default e.g. 30 days) is the effective "remember me" duration, with the ability to revoke individual sessions/devices from Phase 3's session management UI.
 
 **Authorization (RBAC + ACL + ABAC)**
 - RBAC: users assigned roles; roles map to permissions; supports role hierarchies.
@@ -84,6 +89,8 @@ Hoviyat ships with English and Farsi (fa) support from Phase 1, reflecting the p
 - CI/CD: GitHub Actions for build/test/CI, GitOps-style deployment (ArgoCD/Flux) to Kubernetes — fits the OSS, GitHub-hosted project model.
 - Environments: dev and production (two-tier); local development runs against docker-compose rather than a shared dev environment.
 - Go SDK versioning: strict semver, no breaking changes within a major version, kept in lockstep with the API's `/v1` path versioning (§6 Integration surface) and enforced via contract tests (§12).
+- Secrets management: Kubernetes Secrets, encrypted at rest via sealed-secrets or SOPS, for Hoviyat's own operational secrets (DB credentials, JWT signing keys, OAuth client secrets) — no external secrets-manager dependency (e.g. Vault) required in Phase 1, consistent with the cloud-agnostic goal.
+- Transactional email/SMS delivery (password reset, OTP, email verification) is provider-agnostic: Hoviyat defines a pluggable delivery interface, and operators configure their own provider (SendGrid, SES, Twilio, etc.) rather than Hoviyat bundling a specific default.
 
 **Compliance & observability**
 - Full audit log: immutable record of logins, token issuance/revocation, and all role/permission/policy changes (who, what, when, before/after state).
@@ -166,6 +173,9 @@ Hoviyat ships with English and Farsi (fa) support from Phase 1, reflecting the p
 - **Accessibility:** best-effort accessibility practices for the Phase 2/3 React UIs (semantic HTML, keyboard navigation, reasonable contrast), with no formal WCAG compliance target committed for Phase 1–3.
 - **Custom domains:** required — tenants can use their own domain for hosted login/consent pages, not just a shared Hoviyat domain.
 - **IdP role:** Hoviyat acts as both a relying party (consuming Google/GitHub OAuth2, generic OIDC, and SAML 2.0 for login) and an identity provider — third-party apps can integrate "Login with Hoviyat" via OAuth2/OIDC, requiring standard IdP capabilities (client/app registration, consent screens in Phase 3, token issuance to third parties, scopes/claims).
+- **Hosting model:** self-hosted OSS only for Phases 1–3; no managed/hosted SaaS ("Hoviyat Cloud") is in scope.
+
+**Non-engineering prerequisite:** a formal Terms of Service and Privacy Policy must be drafted (legal, not engineering scope) before self-service tenant signup (§6 Multi-tenancy) goes live in production — required given self-service signup collects PII and Phase 1 commits to GDPR handling (§6 Compliance & observability). This is tracked as a required deliverable, not merely a nice-to-have, and blocks production launch of self-service signup specifically (other Phase 1 functionality is not blocked by it).
 
 ## 10. Open questions
 
@@ -178,7 +188,7 @@ Hoviyat ships with English and Farsi (fa) support from Phase 1, reflecting the p
 
 ## 11. Licensing & project model
 
-- **Open source:** public GitHub repository at https://github.com/arashrasoulzadeh/hoviyat under a permissive OSS license (MIT or Apache-2.0 — final pick TBD, Apache-2.0 recommended for patent-grant protection given enterprise/SSO scope).
+- **Open source:** public GitHub repository at https://github.com/arashrasoulzadeh/hoviyat under the **Apache-2.0** license — chosen over MIT for its explicit patent grant, given the enterprise SSO/SAML scope and potential patent-sensitive integrations.
 - External contributions expected; repo should include CONTRIBUTING.md, issue/PR templates, and a code of conduct once Phase 1 implementation begins.
 
 ## 12. Success criteria / acceptance for Phase 1
