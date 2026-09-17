@@ -54,6 +54,20 @@ Layering rule: `domain` has no dependencies on anything else. `repository` imple
 | Cache/sessions | Redis (go-redis) | Per PRD §7/§9 — decision cache, refresh token denylist, rate limiting |
 | gRPC | google.golang.org/grpc + protobuf | Service-to-service authorization checks (PRD §6) |
 | Testing | testify + dedicated RBAC/ACL/ABAC matrix suite, testcontainers-go for Postgres/Redis integration tests | Matches PRD §12 acceptance criteria |
+| Config | Viper (env vars + YAML + flags, in that precedence) | Flexible for K8s ConfigMap/Secret injection in prod and local file overrides in dev |
+| JWT | golang-jwt/jwt | Most widely used, actively maintained Go JWT library; used for both access-token signing/verification and JWKS-based key rotation (PRD §6) |
+| Password hashing | alexedwards/argon2id | Matches the PRD's Argon2id password policy (§6) |
+| Passwordless/WebAuthn | go-webauthn/webauthn | Standard library backing the WebAuthn option in the PRD's password policy (§6) |
+| API docs | swaggo (OpenAPI generated from Go doc-comment annotations on handlers) | Spec generated from the implementation rather than hand-maintained separately, reducing drift; feeds the contract tests required by PRD §12 |
+
+## Frontend stack (Phase 2 / Phase 3)
+
+| App | Framework | Rationale |
+|---|---|---|
+| Admin panel (Phase 2) | Vite + React + TypeScript (SPA) | Internal, behind-auth tool with no SEO/SSR need — Vite keeps the dev loop fast and the build simple |
+| End-user panel (Phase 3) | Next.js + TypeScript | Benefits from SSR for faster first paint on public-facing login/signup/consent pages, and leaves room for future public pages (marketing, docs) without a framework change |
+
+Shared across both: TanStack Query for server-state/data-fetching (talks to the Go REST API), Zustand for local client state, shadcn/ui + Tailwind CSS for components — chosen for fast theming to support the i18n/RTL requirement (PRD §2) without fighting a heavier design system.
 
 ## Build sequence (walking skeleton first)
 
