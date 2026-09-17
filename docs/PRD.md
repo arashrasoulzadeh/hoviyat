@@ -124,7 +124,7 @@ Hoviyat ships with English and Farsi (fa) support from Phase 1, reflecting the p
 - MFA enrollment and management (TOTP setup, backup codes, OTP delivery preference).
 - Profile & session management: list active sessions with device type, approximate location, and last-active timestamp; revoke an individual session; "log out everywhere" (revoke all but the current session); email alert on login from a new/unrecognized device or location; change password.
 - Developer portal: self-service registration of third-party OAuth2/OIDC client apps ("Login with Hoviyat"), issuing client_id/secret immediately without operator approval (§9 IdP client registration).
-- Consent screens for OAuth2/OIDC flows where Hoviyat acts as an identity provider to third-party apps.
+- Consent screens for OAuth2/OIDC flows where Hoviyat acts as an identity provider to third-party apps: explicitly lists the requested scopes/claims in plain language (e.g. "this app wants: your email, your role, your organization") before the user approves. "Remember this consent" and a self-service "connected apps" revocation list are not committed for Phase 1–3 — deferred, since only explicit per-request scope disclosure was confirmed as required.
 - GDPR self-service: data export and account deletion requests.
 
 ## 7. Non-functional requirements
@@ -191,10 +191,12 @@ Hoviyat ships with English and Farsi (fa) support from Phase 1, reflecting the p
 
 ## 10. Open questions
 
-- Specific SAML/OIDC vendor quirks (Okta, Azure AD, Google Workspace) — deferred until a tenant requires one; will need per-vendor validation once identified.
-- Audit log retention period: not yet specified — needs a decision (e.g. 1-year tenant-configurable vs. longer regulatory-grade window) before Phase 1's compliance features are complete.
-- Custom domain TLS provisioning flow: exact ACME/cert-issuance mechanism and how quickly a newly-added custom domain becomes active.
+- Audit log retention period: not yet specified — requires legal/compliance input that isn't available yet (e.g. 1-year tenant-configurable SOC2 baseline vs. a longer regulatory-grade window). Must be resolved before Phase 1's compliance features are considered complete; explicitly not an engineering decision.
 - Exact risk-scoring thresholds/weighting for the signup risk signals (§9) — which signals combined, and how many, trigger manual review vs. outright rejection vs. silent pass — is an implementation-time tuning exercise, not a fixed PRD-level rule.
+
+**Working assumptions (not final — flagged for validation during technical design, not blocking):**
+- *SAML implementation:* build against a standard, actively-maintained Go SAML library (e.g. `crewjam/saml`) implementing the generic SAML 2.0 spec, rather than any vendor-specific SDK. Per-vendor quirks (Okta, Azure AD, Google Workspace metadata/assertion differences) are expected and will surface as bugs once a real tenant integrates a specific IdP — not something a generic-spec implementation can pre-empt without that tenant in hand.
+- *Custom domain TLS:* provision certificates via ACME HTTP-01 challenge against Let's Encrypt when a tenant adds a custom domain, automated (no manual cert upload), targeting activation within minutes of DNS being correctly pointed at Hoviyat — this is a default starting point for implementation, not a committed SLA.
 
 ## 11. Licensing & project model
 
