@@ -9,12 +9,40 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/arashrasoulzadeh/hoviyat/backend/internal/api"
 	"github.com/arashrasoulzadeh/hoviyat/backend/internal/config"
 	"github.com/arashrasoulzadeh/hoviyat/backend/internal/middleware"
 	"github.com/arashrasoulzadeh/hoviyat/backend/internal/repository"
 	"github.com/arashrasoulzadeh/hoviyat/backend/internal/service"
 )
+
+type mockEmailSender struct{}
+
+func (m *mockEmailSender) SendMagicLink(ctx context.Context, email, link string) error {
+	log.Printf("MOCK EMAIL: Magic link sent to %s: %s", email, link)
+	return nil
+}
+
+func (m *mockEmailSender) SendPasswordReset(ctx context.Context, email, link string) error {
+	log.Printf("MOCK EMAIL: Password reset sent to %s: %s", email, link)
+	return nil
+}
+
+func (m *mockEmailSender) SendEmailVerification(ctx context.Context, email, link string) error {
+	log.Printf("MOCK EMAIL: Email verification sent to %s: %s", email, link)
+	return nil
+}
+
+func (m *mockEmailSender) SendOTP(ctx context.Context, email, otp string) error {
+	log.Printf("MOCK EMAIL: OTP sent to %s: %s", email, otp)
+	return nil
+}
+
+func (m *mockEmailSender) SendSMS(ctx context.Context, phone, otp string) error {
+	log.Printf("MOCK SMS: OTP sent to %s: %s", phone, otp)
+	return nil
+}
 
 func main() {
 	cfg := config.Load()
@@ -36,6 +64,18 @@ func main() {
 	rolePermRepo := repository.NewRolePermissionRepository(db)
 	permRepo := repository.NewPermissionRepository(db)
 	policyRepo := repository.NewPolicyRepository(db)
+
+	// Auth extension repositories
+	oauth2ProviderRepo := repository.NewOAuth2ProviderRepository(db)
+	oauth2StateRepo := repository.NewOAuth2StateRepository(db)
+	samlProviderRepo := repository.NewSAMLProviderRepository(db)
+	mfaMethodRepo := repository.NewMFAMethodRepository(db)
+	webAuthnCredRepo := repository.NewWebAuthnCredentialRepository(db)
+	magicLinkRepo := repository.NewMagicLinkRepository(db)
+	_ = repository.NewPasswordPolicyRepository(db)
+	_ = repository.NewFailedLoginAttemptRepository(db)
+	_ = repository.NewPasswordResetTokenRepository(db)
+	_ = repository.NewEmailVerificationTokenRepository(db)
 
 	hasher := service.NewPasswordHasher()
 	tokens := service.NewTokenService(cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
@@ -61,8 +101,6 @@ func main() {
 	if err != nil {
 		log.Printf("warning: failed to connect to Redis, running without cache: %v", err)
 	}
-	// Note: In production, you'd want to handle Redis connection failure more gracefully
-	// and possibly run without cache
 
 	authzService := service.NewAuthorizationService(
 		rbac, aclService, abacService, rolePermService, policyService,
@@ -70,12 +108,37 @@ func main() {
 	)
 	authzHandler := api.NewAuthzHandler(authzService, policyService, aclService, rolePermService, permService)
 
+	// OAuth2 service
+	oauth2Service := service.NewOAuth2Service(
+		oauth2ProviderRepo, oauth2StateRepo, users, memberships,
+		teams, teamMemberships, hasher, tokens,
+	)
+	oauth2Handler := api.NewOAuth2Handler(oauth2Service, tokens)
+
+	// SAML service
+	samlService := service.NewSAMLService(
+		samlProviderRepo, users, memberships,
+		teams, teamMemberships, hasher, tokens,
+	)
+	samlHandler := api.NewSAMLHandler(samlService, tokens)
+
+	// MFA service
+	webAuthn := &webauthn.WebAuthn{}
+	mfaService := service.NewMFAService(mfaMethodRepo, webAuthnCredRepo, users, webAuthn)
+	mfaHandler := api.NewMFAHandler(mfaService, tokens)
+
+	// Passwordless service
+	emailSender := &mockEmailSender{}
+	passwordlessService := service.NewPasswordlessService(
+		magicLinkRepo, users, memberships,
+		teams, teamMemberships, tokens, emailSender,
+	)
+	passwordlessHandler := api.NewPasswordlessHandler(passwordlessService, tokens)
+
 	// Push invalidation (optional)
 	pushInvalidation, err := service.NewPushInvalidation(cfg.RedisURL)
 	if err == nil {
 		pushInvalidation.RegisterHandler("acl_changed", func(payload string) {
-			// Parse payload and invalidate cache
-			// Format: tenantID:userID:resourceType:resourceID
 			log.Printf("Invalidation event: acl_changed %s", payload)
 		})
 		pushInvalidation.RegisterHandler("policy_changed", func(payload string) {
@@ -91,7 +154,11 @@ func main() {
 
 	tenantSignupLimiter := middleware.NewTenantSignupRateLimiter(cfg.TenantSignupRateLimit, cfg.TenantSignupWindow)
 
-	router := api.NewRouter(authHandler, userHandler, tenantHandler, teamHandler, authzHandler, tokens, rbac, tenantSignupLimiter)
+	router := api.NewRouter(
+		authHandler, userHandler, tenantHandler, teamHandler, authzHandler,
+		oauth2Handler, samlHandler, mfaHandler, passwordlessHandler,
+		tokens, rbac, tenantSignupLimiter,
+	)
 
 	// Graceful shutdown
 	go func() {

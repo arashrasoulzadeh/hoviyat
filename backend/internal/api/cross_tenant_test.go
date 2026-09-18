@@ -56,7 +56,7 @@ func TestCrossTenantIsolation(t *testing.T) {
 
 	tenantSignupLimiter := middleware.NewTenantSignupRateLimiter(100, time.Hour)
 
-	router := api.NewRouter(authHandler, userHandler, tenantHandler, teamHandler, authzHandler, tokens, rbac, tenantSignupLimiter)
+	router := api.NewRouter(authHandler, userHandler, tenantHandler, teamHandler, authzHandler, nil, nil, nil, nil, tokens, rbac, tenantSignupLimiter)
 
 	ctx := context.Background()
 

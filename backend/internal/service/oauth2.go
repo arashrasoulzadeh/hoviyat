@@ -14,7 +14,6 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/arashrasoulzadeh/hoviyat/backend/internal/domain"
-	"golang.org/x/oauth2"
 )
 
 var (
@@ -243,7 +242,6 @@ func (s *OAuth2Service) HandleCallback(ctx context.Context, state, code string) 
 func (s *OAuth2Service) getUserInfo(ctx context.Context, provider *domain.OAuth2Provider, accessToken, idToken string) (map[string]interface{}, error) {
 	// If OIDC with ID token, verify it
 	if provider.ProviderType == "oidc" && provider.IssuerURL != "" && idToken != "" {
-		providerConfig := &oidc.ProviderConfig{}
 		oidcProvider, err := oidc.NewProvider(ctx, provider.IssuerURL)
 		if err == nil {
 			verifier := oidcProvider.Verifier(&oidc.Config{ClientID: provider.ClientID})

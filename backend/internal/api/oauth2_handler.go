@@ -6,7 +6,6 @@ import (
 	"net/url"
 
 	"github.com/arashrasoulzadeh/hoviyat/backend/internal/domain"
-	"github.com/arashrasoulzadeh/hoviyat/backend/internal/middleware"
 	"github.com/arashrasoulzadeh/hoviyat/backend/internal/service"
 	"github.com/gin-gonic/gin"
 )
