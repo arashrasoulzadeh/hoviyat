@@ -260,3 +260,70 @@ type emailVerificationTokenModel struct {
 }
 
 func (emailVerificationTokenModel) TableName() string { return "email_verification_tokens" }
+
+type oauth2ClientModel struct {
+	ID                     string `gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
+	TenantID               string `gorm:"not null;index"`
+	Name                   string `gorm:"not null"`
+	ClientID               string `gorm:"uniqueIndex;not null"`
+	ClientSecretHash       string `gorm:"not null"`
+	RedirectURIs           string `gorm:"type:text"` // JSON array
+	Scopes                 string `gorm:"type:text"` // JSON array
+	GrantTypes             string `gorm:"type:text"` // JSON array
+	ResponseTypes          string `gorm:"type:text"` // JSON array
+	TokenEndpointAuthMethod string `gorm:"default:client_secret_basic"`
+	LogoURI                string
+	ClientURI              string
+	PolicyURI              string
+	TOSURI                 string
+	JWKSURI                string
+	Contacts               string `gorm:"type:text"` // JSON array
+	Enabled                bool   `gorm:"default:true"`
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	CreatedBy              string
+}
+
+func (oauth2ClientModel) TableName() string { return "oauth2_clients" }
+
+type oauth2AuthCodeModel struct {
+	ID                string `gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
+	ClientID          string `gorm:"not null;index"`
+	UserID            string `gorm:"not null;index"`
+	TenantID          string `gorm:"not null;index"`
+	RedirectURI       string
+	Scopes            string `gorm:"type:text"` // JSON array
+	CodeChallenge     string
+	CodeChallengeMethod string
+	Nonce             string
+	ExpiresAt         time.Time `gorm:"not null;index"`
+	CreatedAt         time.Time
+}
+
+func (oauth2AuthCodeModel) TableName() string { return "oauth2_auth_codes" }
+
+type oauth2ConsentModel struct {
+	ID        string `gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
+	UserID    string `gorm:"not null;index"`
+	ClientID  string `gorm:"not null;index"`
+	TenantID  string `gorm:"not null;index"`
+	Scopes    string `gorm:"type:text"` // JSON array
+	ExpiresAt *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+func (oauth2ConsentModel) TableName() string { return "oauth2_consents" }
+
+type signingKeyModel struct {
+	ID        string `gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
+	KeyID     string `gorm:"uniqueIndex;not null"`
+	Algorithm string `gorm:"not null;default:RS256"`
+	PrivateKey string `gorm:"type:text;not null"` // encrypted
+	PublicKey  string `gorm:"type:text;not null"`
+	IsActive   bool   `gorm:"default:false"`
+	CreatedAt  time.Time
+	ExpiresAt  *time.Time
+}
+
+func (signingKeyModel) TableName() string { return "signing_keys" }

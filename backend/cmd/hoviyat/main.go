@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/arashrasoulzadeh/hoviyat/backend/internal/api"
@@ -77,6 +78,12 @@ func main() {
 	_ = repository.NewPasswordResetTokenRepository(db)
 	_ = repository.NewEmailVerificationTokenRepository(db)
 
+	// IdP repositories
+	oauth2ClientRepo := repository.NewOAuth2ClientRepository(db)
+	oauth2AuthCodeRepo := repository.NewOAuth2AuthCodeRepository(db)
+	oauth2ConsentRepo := repository.NewOAuth2ConsentRepository(db)
+	signingKeyRepo := repository.NewSigningKeyRepository(db)
+
 	hasher := service.NewPasswordHasher()
 	tokens := service.NewTokenService(cfg.JWTSecret, cfg.AccessTokenTTL, cfg.RefreshTokenTTL)
 	rbac := service.NewRBACService()
@@ -108,7 +115,7 @@ func main() {
 	)
 	authzHandler := api.NewAuthzHandler(authzService, policyService, aclService, rolePermService, permService)
 
-	// OAuth2 service
+	// OAuth2 service (relying party)
 	oauth2Service := service.NewOAuth2Service(
 		oauth2ProviderRepo, oauth2StateRepo, users, memberships,
 		teams, teamMemberships, hasher, tokens,
@@ -135,6 +142,19 @@ func main() {
 	)
 	passwordlessHandler := api.NewPasswordlessHandler(passwordlessService, tokens)
 
+	// IdP services (Hoviyat as Identity Provider)
+	clientService := service.NewOAuth2ClientService(
+		oauth2ClientRepo, oauth2AuthCodeRepo, oauth2ConsentRepo, signingKeyRepo,
+	)
+	jwksService := service.NewJWKSService(signingKeyRepo)
+	if err := jwksService.Initialize(context.Background()); err != nil {
+		log.Printf("warning: failed to initialize JWKS: %v", err)
+	}
+	// Start key rotation every 24 hours
+	go jwksService.StartKeyRotation(context.Background(), 24*time.Hour)
+
+	idpHandler := api.NewIdPHandler(clientService, jwksService, tokens)
+
 	// Push invalidation (optional)
 	pushInvalidation, err := service.NewPushInvalidation(cfg.RedisURL)
 	if err == nil {
@@ -156,7 +176,7 @@ func main() {
 
 	router := api.NewRouter(
 		authHandler, userHandler, tenantHandler, teamHandler, authzHandler,
-		oauth2Handler, samlHandler, mfaHandler, passwordlessHandler,
+		oauth2Handler, samlHandler, mfaHandler, passwordlessHandler, idpHandler,
 		tokens, rbac, tenantSignupLimiter,
 	)
 

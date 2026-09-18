@@ -22,6 +22,7 @@ func NewRouter(
 	saml *SAMLHandler,
 	mfa *MFAHandler,
 	passwordless *PasswordlessHandler,
+	idp *IdPHandler,
 	tokens *service.TokenService,
 	rbac *service.RBACService,
 	tenantSignupLimiter *middleware.TenantSignupRateLimiter,
@@ -152,6 +153,23 @@ func NewRouter(
 		teamsGroup.GET("/:id/members/:userId", teams.GetMember)
 		teamsGroup.PATCH("/:id/members/:userId", teams.UpdateMember)
 		teamsGroup.DELETE("/:id/members/:userId", teams.RemoveMember)
+
+		// IdP (Hoviyat as Identity Provider) - PRD §6, §9, §82-§86
+		idpGroup := v1.Group("/idp")
+		idpGroup.POST("/:tenantId/clients", idp.RegisterClient)
+		idpGroup.GET("/:tenantId/clients", idp.ListClients)
+		idpGroup.GET("/:tenantId/clients/:id", idp.GetClient)
+		idpGroup.PATCH("/:tenantId/clients/:id", idp.UpdateClient)
+		idpGroup.DELETE("/:tenantId/clients/:id", idp.DeleteClient)
+
+		// OAuth2/OIDC endpoints (public, no auth required)
+		idpGroup.GET("/authorize", idp.Authorize)
+		idpGroup.POST("/consent", middleware.RequireAuth(tokens), idp.Consent)
+		idpGroup.POST("/token", idp.Token)
+		idpGroup.GET("/jwks", idp.JWKS)
+		idpGroup.GET("/.well-known/openid-configuration", idp.Discovery)
+		idpGroup.GET("/userinfo", middleware.RequireAuth(tokens), idp.UserInfo)
+
 	}
 
 	return r

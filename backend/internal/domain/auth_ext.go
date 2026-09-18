@@ -249,3 +249,119 @@ type EmailVerificationTokenRepository interface {
 	MarkVerified(ctx context.Context, id string) error
 	DeleteExpired(ctx context.Context) error
 }
+
+// OAuth2Client represents a third-party client application registered with Hoviyat as an IdP.
+type OAuth2Client struct {
+	ID                string
+	TenantID          string
+	Name              string
+	ClientID          string
+	ClientSecret      string // hashed
+	RedirectURIs      []string
+	Scopes            []string
+	GrantTypes        []string // authorization_code, refresh_token, client_credentials
+	ResponseTypes     []string // code, token, id_token
+	TokenEndpointAuthMethod string // client_secret_basic, client_secret_post, none
+	LogoURI           string
+	ClientURI         string
+	PolicyURI         string
+	TOSURI            string
+	JWKSURI           string
+	Contacts          []string
+	Enabled           bool
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	CreatedBy         string // user ID who created the client
+}
+
+var (
+	ErrOAuth2ClientNotFound = errors.New("oauth2 client not found")
+)
+
+type OAuth2ClientRepository interface {
+	Create(ctx context.Context, c *OAuth2Client) error
+	FindByID(ctx context.Context, id string) (*OAuth2Client, error)
+	FindByClientID(ctx context.Context, clientID string) (*OAuth2Client, error)
+	FindByTenant(ctx context.Context, tenantID string) ([]*OAuth2Client, error)
+	Update(ctx context.Context, c *OAuth2Client) error
+	Delete(ctx context.Context, id string) error
+}
+
+// OAuth2AuthorizationCode represents an authorization code in the OAuth2 flow.
+type OAuth2AuthorizationCode struct {
+	ID           string
+	ClientID     string
+	UserID       string
+	TenantID     string
+	RedirectURI  string
+	Scopes       []string
+	CodeChallenge string
+	CodeChallengeMethod string
+	Nonce        string // for OIDC
+	ExpiresAt    time.Time
+	CreatedAt    time.Time
+}
+
+type OAuth2AuthorizationCodeRepository interface {
+	Create(ctx context.Context, c *OAuth2AuthorizationCode) error
+	FindByCode(ctx context.Context, code string) (*OAuth2AuthorizationCode, error)
+	Delete(ctx context.Context, code string) error
+	DeleteExpired(ctx context.Context) error
+}
+
+// OAuth2Consent represents a user's consent for a client to access their data.
+type OAuth2Consent struct {
+	ID         string
+	UserID     string
+	ClientID   string
+	TenantID   string
+	Scopes     []string
+	ExpiresAt  *time.Time // nil = never expires (remember consent)
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+type OAuth2ConsentRepository interface {
+	Create(ctx context.Context, c *OAuth2Consent) error
+	FindByUserAndClient(ctx context.Context, userID, clientID string) (*OAuth2Consent, error)
+	FindByUser(ctx context.Context, userID string) ([]*OAuth2Consent, error)
+	Update(ctx context.Context, c *OAuth2Consent) error
+	Delete(ctx context.Context, userID, clientID string) error
+}
+
+// SigningKey represents a JWT signing key for token issuance.
+type SigningKey struct {
+	ID        string
+	KeyID     string // kid
+	Algorithm string // RS256, ES256, etc.
+	PrivateKey string // PEM encoded (encrypted at rest)
+	PublicKey  string // PEM encoded
+	IsActive   bool
+	CreatedAt  time.Time
+	ExpiresAt  *time.Time
+}
+
+type SigningKeyRepository interface {
+	Create(ctx context.Context, k *SigningKey) error
+	FindActive(ctx context.Context) (*SigningKey, error)
+	FindByID(ctx context.Context, id string) (*SigningKey, error)
+	FindByKeyID(ctx context.Context, keyID string) (*SigningKey, error)
+	List(ctx context.Context) ([]*SigningKey, error)
+	Update(ctx context.Context, k *SigningKey) error
+}
+
+// TokenIntrospectionResponse represents the response for RFC 7662 token introspection.
+type TokenIntrospectionResponse struct {
+	Active    bool     `json:"active"`
+	Scope     string   `json:"scope,omitempty"`
+	ClientID  string   `json:"client_id,omitempty"`
+	Username  string   `json:"username,omitempty"`
+	TokenType string   `json:"token_type,omitempty"`
+	Exp       int64    `json:"exp,omitempty"`
+	Iat       int64    `json:"iat,omitempty"`
+	Nbf       int64    `json:"nbf,omitempty"`
+	Sub       string   `json:"sub,omitempty"`
+	Aud       []string `json:"aud,omitempty"`
+	Iss       string   `json:"iss,omitempty"`
+	JTI       string   `json:"jti,omitempty"`
+}

@@ -325,7 +325,7 @@ func newTestRouter() (*gin.Engine, *fakeTenantRepository) {
 	authzHandler := api.NewAuthzHandler(authzService, policyService, aclService, rolePermService, permService)
 
 	tenantSignupLimiter := middleware.NewTenantSignupRateLimiter(100, time.Hour)
-	return api.NewRouter(authHandler, userHandler, tenantHandler, teamHandler, authzHandler, nil, nil, nil, nil, tokens, rbac, tenantSignupLimiter), tenants
+	return api.NewRouter(authHandler, userHandler, tenantHandler, teamHandler, authzHandler, nil, nil, nil, nil, nil, tokens, rbac, tenantSignupLimiter), tenants
 }
 
 func doJSON(router http.Handler, method, path string, body any, bearer string) *httptest.ResponseRecorder {
