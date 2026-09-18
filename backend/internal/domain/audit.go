@@ -72,7 +72,10 @@ type AuditLog struct {
 }
 
 var (
-	ErrAuditLogNotFound = errors.New("audit log not found")
+	ErrAuditLogNotFound    = errors.New("audit log not found")
+	ErrAuditExportNotFound = errors.New("audit export not found")
+	ErrWebhookNotFound     = errors.New("webhook not found")
+	ErrWebhookDeliveryFail = errors.New("webhook delivery failed")
 )
 
 // AuditLogRepository defines the interface for audit log persistence
@@ -110,10 +113,6 @@ type AuditExport struct {
 	ExpiresAt time.Time
 	Status    string // "pending", "ready", "expired", "pending_erasure", "completed"
 }
-
-var (
-	ErrAuditExportNotFound = errors.New("audit export not found")
-)
 
 type AuditExportRepository interface {
 	Create(ctx context.Context, export *AuditExport) error
