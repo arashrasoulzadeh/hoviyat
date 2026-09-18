@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: hoviyat_test
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  hoviyat:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.test
+    environment:
+      HOVIYAT_DATABASE_URL: "postgres://postgres:postgres@postgres:5432/hoviyat_test?sslmode=disable"
+      HOVIYAT_HTTP_ADDR: ":8080"
+      HOVIYAT_JWT_SECRET: "test-secret-for-integration-tests"
+      HOVIYAT_REDIS_URL: "redis://redis:6379"
+    ports:
+      - "18080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["./hoviyat"]
