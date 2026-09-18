@@ -155,6 +155,15 @@ func main() {
 
 	idpHandler := api.NewIdPHandler(clientService, jwksService, tokens)
 
+	// Audit & GDPR services
+	auditRepo := repository.NewAuditLogRepository(db)
+	exportRepo := repository.NewAuditExportRepository(db)
+	auditService := service.NewAuditLogService(auditRepo)
+	auditHandler := api.NewAuditHandler(auditService)
+
+	gdprService := service.NewGDPRService(users, memberships, teamMemberships, auditRepo, exportRepo)
+	gdprHandler := api.NewGDPRHandler(gdprService)
+
 	// Push invalidation (optional)
 	pushInvalidation, err := service.NewPushInvalidation(cfg.RedisURL)
 	if err == nil {
@@ -177,6 +186,7 @@ func main() {
 	router := api.NewRouter(
 		authHandler, userHandler, tenantHandler, teamHandler, authzHandler,
 		oauth2Handler, samlHandler, mfaHandler, passwordlessHandler, idpHandler,
+		gdprHandler, auditHandler,
 		tokens, rbac, tenantSignupLimiter,
 	)
 

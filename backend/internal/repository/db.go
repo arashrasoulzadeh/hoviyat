@@ -22,5 +22,6 @@ func AutoMigrate(db *gorm.DB) error {
 		&passwordPolicyModel{}, &failedLoginAttemptModel{}, &passwordResetTokenModel{},
 		&emailVerificationTokenModel{},
 		&oauth2ClientModel{}, &oauth2AuthCodeModel{}, &oauth2ConsentModel{}, &signingKeyModel{},
+		&auditLogModel{}, &auditExportModel{},
 	)
 }

@@ -23,6 +23,8 @@ func NewRouter(
 	mfa *MFAHandler,
 	passwordless *PasswordlessHandler,
 	idp *IdPHandler,
+	gdpr *GDPRHandler,
+	audit *AuditHandler,
 	tokens *service.TokenService,
 	rbac *service.RBACService,
 	tenantSignupLimiter *middleware.TenantSignupRateLimiter,
@@ -170,6 +172,19 @@ func NewRouter(
 		idpGroup.GET("/.well-known/openid-configuration", idp.Discovery)
 		idpGroup.GET("/userinfo", middleware.RequireAuth(tokens), idp.UserInfo)
 
+		// GDPR (PRD §6, §100-§101)
+		gdprGroup := authed.Group("/gdpr")
+		gdprGroup.POST("/export", gdpr.RequestExport)
+		gdprGroup.GET("/export/:requestId", gdpr.GetExport)
+		gdprGroup.POST("/erasure", gdpr.RequestErasure)
+		gdprGroup.GET("/erasure/:requestId", gdpr.GetErasureStatus)
+
+		// Audit Log (PRD §6, §114)
+		auditGroup := authed.Group("/audit")
+		auditGroup.GET("", audit.List)
+		auditGroup.GET("/:id", audit.Get)
+		auditGroup.GET("/verify", audit.VerifyChain)
+		auditGroup.GET("/export", audit.Export)
 	}
 
 	return r

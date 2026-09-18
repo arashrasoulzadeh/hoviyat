@@ -327,3 +327,35 @@ type signingKeyModel struct {
 }
 
 func (signingKeyModel) TableName() string { return "signing_keys" }
+
+type auditLogModel struct {
+	ID           string `gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
+	TenantID     string `gorm:"not null;index"`
+	EventType    string `gorm:"not null;index"`
+	ActorID      string `gorm:"not null;index"`
+	ActorType    string `gorm:"not null"`
+	ResourceType string `gorm:"not null;index"`
+	ResourceID   string `gorm:"not null;index"`
+	Action       string `gorm:"not null"`
+	Before       string `gorm:"type:text"` // JSON
+	After        string `gorm:"type:text"` // JSON
+	Metadata     string `gorm:"type:text"` // JSON
+	Timestamp    time.Time `gorm:"not null;index"`
+	Hash         string `gorm:"not null;uniqueIndex"`
+	PrevHash     string `gorm:"not null;index"`
+}
+
+func (auditLogModel) TableName() string { return "audit_logs" }
+
+type auditExportModel struct {
+	RequestID string `gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
+	UserID    string `gorm:"not null;index"`
+	TenantID  string `gorm:"not null;index"`
+	Email     string `gorm:"not null;index"`
+	Data      string `gorm:"type:text"` // JSON
+	Status    string `gorm:"not null;default:pending;index"`
+	CreatedAt time.Time `gorm:"not null;index"`
+	ExpiresAt time.Time `gorm:"not null;index"`
+}
+
+func (auditExportModel) TableName() string { return "audit_exports" }
