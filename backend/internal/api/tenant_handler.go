@@ -15,16 +15,18 @@ import (
 // arrives with the ACL/ABAC build stage — for now they sit behind the
 // same authenticated-request middleware as everything else.
 type TenantHandler struct {
-	tenants *service.TenantService
+	tenants    *service.TenantService
+	riskScorer *service.RiskScorer
 }
 
-func NewTenantHandler(tenants *service.TenantService) *TenantHandler {
-	return &TenantHandler{tenants: tenants}
+func NewTenantHandler(tenants *service.TenantService, riskScorer *service.RiskScorer) *TenantHandler {
+	return &TenantHandler{tenants: tenants, riskScorer: riskScorer}
 }
 
 type createTenantRequest struct {
-	Name string `json:"name" binding:"required"`
-	Slug string `json:"slug" binding:"required"`
+	Name  string `json:"name" binding:"required"`
+	Slug  string `json:"slug" binding:"required"`
+	Email string `json:"email" binding:"required,email"`
 }
 
 func toTenantResponse(tenant *domain.Tenant) gin.H {
@@ -42,6 +44,11 @@ func (h *TenantHandler) Create(c *gin.Context) {
 		writeError(c, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+
+	// Assess risk signals for self-service signup (PRD §9)
+	ip := c.ClientIP()
+	assessment := h.riskScorer.AssessSignup(c.Request.Context(), req.Email, ip)
+
 	tenant, err := h.tenants.Create(c.Request.Context(), req.Name, req.Slug)
 	if err != nil {
 		if errors.Is(err, domain.ErrTenantAlreadyExists) {
@@ -51,7 +58,20 @@ func (h *TenantHandler) Create(c *gin.Context) {
 		writeError(c, http.StatusInternalServerError, "internal_error", "failed to create tenant")
 		return
 	}
-	c.JSON(http.StatusCreated, toTenantResponse(tenant))
+
+	// Record tenant creation for velocity tracking
+	h.riskScorer.RecordTenantCreation(ip)
+
+	resp := toTenantResponse(tenant)
+	if assessment.RequiresReview {
+		resp["requires_review"] = true
+		resp["review_reasons"] = assessment.Reasons
+		resp["risk_score"] = assessment.Score
+	} else {
+		resp["requires_review"] = false
+	}
+
+	c.JSON(http.StatusCreated, resp)
 }
 
 func (h *TenantHandler) Suspend(c *gin.Context) {
@@ -88,6 +108,19 @@ func (h *TenantHandler) Delete(c *gin.Context) {
 			return
 		}
 		writeError(c, http.StatusInternalServerError, "internal_error", "failed to delete tenant")
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (h *TenantHandler) Activate(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.tenants.Activate(c.Request.Context(), id); err != nil {
+		if errors.Is(err, domain.ErrTenantNotFound) {
+			writeError(c, http.StatusNotFound, "tenant_not_found", "tenant not found")
+			return
+		}
+		writeError(c, http.StatusInternalServerError, "internal_error", "failed to activate tenant")
 		return
 	}
 	c.Status(http.StatusNoContent)

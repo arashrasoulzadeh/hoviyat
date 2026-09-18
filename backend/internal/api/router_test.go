@@ -11,6 +11,8 @@ import (
 
 	"github.com/arashrasoulzadeh/hoviyat/backend/internal/api"
 	"github.com/arashrasoulzadeh/hoviyat/backend/internal/domain"
+	"github.com/arashrasoulzadeh/hoviyat/backend/internal/middleware"
+	"github.com/arashrasoulzadeh/hoviyat/backend/internal/repository"
 	"github.com/arashrasoulzadeh/hoviyat/backend/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -160,21 +162,170 @@ func (f *fakeMembershipRepository) Delete(_ context.Context, userID, tenantID st
 	return nil
 }
 
+type fakeTeamRepository struct {
+	byID   map[string]*domain.Team
+	nextID int
+}
+
+func newFakeTeamRepository() *fakeTeamRepository {
+	return &fakeTeamRepository{byID: map[string]*domain.Team{}}
+}
+
+func (f *fakeTeamRepository) Create(_ context.Context, team *domain.Team) error {
+	if team.ID == "" {
+		f.nextID++
+		team.ID = string(rune('T' + f.nextID))
+	}
+	if _, exists := f.byID[team.ID]; exists {
+		return domain.ErrTeamAlreadyExists
+	}
+	f.byID[team.ID] = team
+	return nil
+}
+
+func (f *fakeTeamRepository) FindByID(_ context.Context, id string) (*domain.Team, error) {
+	t, ok := f.byID[id]
+	if !ok {
+		return nil, domain.ErrTeamNotFound
+	}
+	return t, nil
+}
+
+func (f *fakeTeamRepository) FindBySlug(_ context.Context, tenantID, slug string) (*domain.Team, error) {
+	for _, t := range f.byID {
+		if t.TenantID == tenantID && t.Slug == slug {
+			return t, nil
+		}
+	}
+	return nil, domain.ErrTeamNotFound
+}
+
+func (f *fakeTeamRepository) ListByTenant(_ context.Context, tenantID string) ([]*domain.Team, error) {
+	var out []*domain.Team
+	for _, t := range f.byID {
+		if t.TenantID == tenantID {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeTeamRepository) Update(_ context.Context, team *domain.Team) error {
+	if _, ok := f.byID[team.ID]; !ok {
+		return domain.ErrTeamNotFound
+	}
+	f.byID[team.ID] = team
+	return nil
+}
+
+func (f *fakeTeamRepository) Delete(_ context.Context, id string) error {
+	delete(f.byID, id)
+	return nil
+}
+
+type fakeTeamMembershipRepository struct {
+	byKey map[string]*domain.TeamMembership
+}
+
+func newFakeTeamMembershipRepository() *fakeTeamMembershipRepository {
+	return &fakeTeamMembershipRepository{byKey: map[string]*domain.TeamMembership{}}
+}
+
+func teamMembershipKey(userID, teamID string) string {
+	return userID + "|" + teamID
+}
+
+func (f *fakeTeamMembershipRepository) Create(_ context.Context, tm *domain.TeamMembership) error {
+	key := teamMembershipKey(tm.UserID, tm.TeamID)
+	if _, exists := f.byKey[key]; exists {
+		return domain.ErrTeamMembershipAlreadyExists
+	}
+	f.byKey[key] = tm
+	return nil
+}
+
+func (f *fakeTeamMembershipRepository) FindByUserAndTeam(_ context.Context, userID, teamID string) (*domain.TeamMembership, error) {
+	m, ok := f.byKey[teamMembershipKey(userID, teamID)]
+	if !ok {
+		return nil, domain.ErrTeamMembershipNotFound
+	}
+	return m, nil
+}
+
+func (f *fakeTeamMembershipRepository) ListByUser(_ context.Context, userID string) ([]*domain.TeamMembership, error) {
+	var out []*domain.TeamMembership
+	for _, m := range f.byKey {
+		if m.UserID == userID {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeTeamMembershipRepository) ListByTeam(_ context.Context, teamID string) ([]*domain.TeamMembership, error) {
+	var out []*domain.TeamMembership
+	for _, m := range f.byKey {
+		if m.TeamID == teamID {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeTeamMembershipRepository) UpdateRoles(_ context.Context, userID, teamID string, roles []string) error {
+	m, ok := f.byKey[teamMembershipKey(userID, teamID)]
+	if !ok {
+		return domain.ErrTeamMembershipNotFound
+	}
+	m.Roles = roles
+	return nil
+}
+
+func (f *fakeTeamMembershipRepository) Delete(_ context.Context, userID, teamID string) error {
+	delete(f.byKey, teamMembershipKey(userID, teamID))
+	return nil
+}
+
 func newTestRouter() (*gin.Engine, *fakeTenantRepository) {
 	gin.SetMode(gin.TestMode)
 	repo := newFakeUserRepository()
 	tenants := newFakeTenantRepository()
 	memberships := newFakeMembershipRepository()
+	teams := newFakeTeamRepository()
+	teamMemberships := newFakeTeamMembershipRepository()
 	hasher := service.NewPasswordHasher()
 	tokens := service.NewTokenService("test-secret", 15*time.Minute, 7*24*time.Hour)
 	rbac := service.NewRBACService()
-	authService := service.NewAuthService(repo, tenants, memberships, hasher, tokens)
+	authService := service.NewAuthService(repo, tenants, memberships, teamMemberships, teams, hasher, tokens)
 
 	authHandler := api.NewAuthHandler(authService)
-	userHandler := api.NewUserHandler(repo)
+	userHandler := api.NewUserHandler(repo, memberships, teamMemberships, teams)
 	tenantService := service.NewTenantService(tenants)
-	tenantHandler := api.NewTenantHandler(tenantService)
-	return api.NewRouter(authHandler, userHandler, tenantHandler, tokens, rbac), tenants
+	riskScorer := service.NewRiskScorer()
+	tenantHandler := api.NewTenantHandler(tenantService, riskScorer)
+	teamService := service.NewTeamService(teams)
+	teamMembershipService := service.NewTeamMembershipService(teamMemberships, teams)
+	teamHandler := api.NewTeamHandler(teamService, teamMembershipService)
+
+	aclRepo := repository.NewACLRepository(nil)
+	rolePermRepo := repository.NewRolePermissionRepository(nil)
+	permRepo := repository.NewPermissionRepository(nil)
+	policyRepo := repository.NewPolicyRepository(nil)
+
+	aclService := service.NewACLService(aclRepo)
+	rolePermService := service.NewRolePermissionService(rolePermRepo)
+	permService := service.NewPermissionService(permRepo)
+	policyService := service.NewPolicyService(policyRepo)
+	abacService := service.NewABACService()
+	authzService := service.NewAuthorizationService(
+		rbac, aclService, abacService, rolePermService, policyService,
+		nil, // cache not needed for tests
+		memberships, teamMemberships, teams,
+	)
+	authzHandler := api.NewAuthzHandler(authzService, policyService, aclService, rolePermService, permService)
+
+	tenantSignupLimiter := middleware.NewTenantSignupRateLimiter(100, time.Hour)
+	return api.NewRouter(authHandler, userHandler, tenantHandler, teamHandler, authzHandler, tokens, rbac, tenantSignupLimiter), tenants
 }
 
 func doJSON(router http.Handler, method, path string, body any, bearer string) *httptest.ResponseRecorder {
@@ -271,9 +422,10 @@ func TestTenantProvisioningAndSwitch(t *testing.T) {
 	}
 
 	createRec := doJSON(router, http.MethodPost, "/api/v1/tenants", map[string]string{
-		"name": "Acme Inc",
-		"slug": "acme-inc",
-	}, reg.AccessToken)
+		"name":  "Acme Inc",
+		"slug":  "acme-inc",
+		"email": "frank@example.com",
+	}, "")
 	if createRec.Code != http.StatusCreated {
 		t.Fatalf("create tenant status = %d, body = %s", createRec.Code, createRec.Body.String())
 	}

@@ -12,15 +12,17 @@ import (
 // tenants must authenticate (or switch) into a specific tenant to receive
 // a token carrying that tenant's roles.
 type AuthService struct {
-	users       domain.UserRepository
-	tenants     domain.TenantRepository
-	memberships domain.MembershipRepository
-	hasher      *PasswordHasher
-	tokens      *TokenService
+	users             domain.UserRepository
+	tenants           domain.TenantRepository
+	memberships       domain.MembershipRepository
+	teamMemberships   domain.TeamMembershipRepository
+	teams             domain.TeamRepository
+	hasher            *PasswordHasher
+	tokens            *TokenService
 }
 
-func NewAuthService(users domain.UserRepository, tenants domain.TenantRepository, memberships domain.MembershipRepository, hasher *PasswordHasher, tokens *TokenService) *AuthService {
-	return &AuthService{users: users, tenants: tenants, memberships: memberships, hasher: hasher, tokens: tokens}
+func NewAuthService(users domain.UserRepository, tenants domain.TenantRepository, memberships domain.MembershipRepository, teamMemberships domain.TeamMembershipRepository, teams domain.TeamRepository, hasher *PasswordHasher, tokens *TokenService) *AuthService {
+	return &AuthService{users: users, tenants: tenants, memberships: memberships, teamMemberships: teamMemberships, teams: teams, hasher: hasher, tokens: tokens}
 }
 
 // AuthResult carries the caller's tenant-scoped session.
@@ -120,7 +122,24 @@ func (s *AuthService) rolesForTenant(ctx context.Context, userID, tenantID strin
 	if err != nil {
 		return nil, err
 	}
-	return membership.Roles, nil
+
+	roles := membership.Roles
+
+	teamMemberships, err := s.teamMemberships.ListByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	for _, tm := range teamMemberships {
+		team, err := s.teams.FindByID(ctx, tm.TeamID)
+		if err != nil {
+			continue
+		}
+		if team.TenantID == tenantID {
+			roles = append(roles, tm.Roles...)
+		}
+	}
+
+	return roles, nil
 }
 
 func (s *AuthService) issueTokens(user *domain.User, tenantID string, roles []string) (*AuthResult, error) {
@@ -139,4 +158,9 @@ func (s *AuthService) issueTokens(user *domain.User, tenantID string, roles []st
 		TenantID:     tenantID,
 		Roles:        roles,
 	}, nil
+}
+
+// LeaveTenant removes the user's membership from a tenant.
+func (s *AuthService) LeaveTenant(ctx context.Context, userID, tenantID string) error {
+	return s.memberships.Delete(ctx, userID, tenantID)
 }

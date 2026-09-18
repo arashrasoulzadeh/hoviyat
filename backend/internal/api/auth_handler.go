@@ -102,6 +102,10 @@ type switchTenantRequest struct {
 	TenantID string `json:"tenant_id" binding:"required"`
 }
 
+type leaveTenantRequest struct {
+	TenantID string `json:"tenant_id" binding:"required"`
+}
+
 // SwitchTenant issues a fresh tenant-scoped token for a tenant the caller
 // already belongs to (PRD §6 tenant-switcher).
 func (h *AuthHandler) SwitchTenant(c *gin.Context) {
@@ -126,6 +130,26 @@ func (h *AuthHandler) SwitchTenant(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, toAuthResponse(result))
+}
+
+// LeaveTenant removes the caller's membership from a tenant.
+func (h *AuthHandler) LeaveTenant(c *gin.Context) {
+	var req leaveTenantRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	userID, _ := c.Get(middleware.ContextUserID)
+	id, _ := userID.(string)
+	if err := h.auth.LeaveTenant(c.Request.Context(), id, req.TenantID); err != nil {
+		if errors.Is(err, domain.ErrMembershipNotFound) {
+			writeError(c, http.StatusNotFound, "membership_not_found", "you are not a member of this tenant")
+			return
+		}
+		writeError(c, http.StatusInternalServerError, "internal_error", "failed to leave tenant")
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 // writeError follows the PRD's §2 error-code contract: a machine-readable

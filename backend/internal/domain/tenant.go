@@ -9,6 +9,7 @@ import (
 type TenantStatus string
 
 const (
+	TenantStatusPending   TenantStatus = "pending"
 	TenantStatusActive    TenantStatus = "active"
 	TenantStatusSuspended TenantStatus = "suspended"
 )

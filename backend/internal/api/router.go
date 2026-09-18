@@ -12,7 +12,7 @@ import (
 // an authenticated "me" endpoint gated by a basic RBAC permission check.
 // gRPC, OAuth2/OIDC/SAML, ABAC, and multi-tenant routes arrive in later
 // build stages (docs/TECHNICAL_DESIGN.md).
-func NewRouter(auth *AuthHandler, users *UserHandler, tenants *TenantHandler, tokens *service.TokenService, rbac *service.RBACService) *gin.Engine {
+func NewRouter(auth *AuthHandler, users *UserHandler, tenants *TenantHandler, teams *TeamHandler, authz *AuthzHandler, tokens *service.TokenService, rbac *service.RBACService, tenantSignupLimiter *middleware.TenantSignupRateLimiter) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
@@ -25,21 +25,73 @@ func NewRouter(auth *AuthHandler, users *UserHandler, tenants *TenantHandler, to
 		v1.POST("/auth/register", auth.Register)
 		v1.POST("/auth/login", auth.Login)
 
+		// Public tenant signup with rate limiting (PRD §7, §9)
+		v1.POST("/tenants", tenantSignupLimiter.Middleware(), tenants.Create)
+
 		me := v1.Group("/users/me")
 		me.Use(middleware.RequireAuth(tokens))
 		me.GET("", middleware.RequirePermission(rbac, "self:read"), users.Me)
+		me.GET("/memberships", middleware.RequirePermission(rbac, "self:read"), users.ListMemberships)
+		me.GET("/team-memberships", middleware.RequirePermission(rbac, "self:read"), users.ListTeamMemberships)
 
 		authed := v1.Group("")
 		authed.Use(middleware.RequireAuth(tokens))
 		authed.POST("/auth/switch-tenant", auth.SwitchTenant)
+		authed.POST("/auth/leave-tenant", auth.LeaveTenant)
+
+		// Authorization API (PRD §6, §70-§76)
+		authzGroup := authed.Group("/authz")
+		authzGroup.POST("/check", authz.Check)
+		authzGroup.POST("/dry-run", authz.DryRun)
+
+		// ACL management
+		aclGroup := authzGroup.Group("/acl")
+		aclGroup.POST("/:tenantId", authz.GrantACL)
+		aclGroup.DELETE("/:tenantId", authz.RevokeACL)
+		aclGroup.GET("/:tenantId/by-subject", authz.ListACLBySubject)
+		aclGroup.GET("/:tenantId/by-resource", authz.ListACLByResource)
+
+		// Role-Permission management
+		rolePermGroup := authzGroup.Group("/roles/:roleName/permissions")
+		rolePermGroup.POST("/:tenantId", authz.GrantRolePermission)
+		rolePermGroup.DELETE("/:tenantId", authz.RevokeRolePermission)
+		rolePermGroup.DELETE("/:tenantId/all", authz.RevokeAllRolePermissions)
+		rolePermGroup.GET("/:tenantId", authz.ListRolePermissions)
+
+		// Permission definitions
+		permGroup := authzGroup.Group("/permissions")
+		permGroup.POST("/:tenantId", authz.CreatePermission)
+		permGroup.GET("/:tenantId", authz.ListPermissions)
+		permGroup.GET("/:tenantId/:id", authz.GetPermission)
+		permGroup.DELETE("/:tenantId/:id", authz.DeletePermission)
+
+		// Policy management (OPA/Rego)
+		policyGroup := authzGroup.Group("/policies")
+		policyGroup.POST("/:tenantId", authz.CreatePolicy)
+		policyGroup.GET("/:tenantId", authz.ListPolicies)
+		policyGroup.GET("/:tenantId/:id", authz.GetPolicy)
+		policyGroup.POST("/:tenantId/:id/activate", authz.ActivatePolicy)
+		policyGroup.POST("/:tenantId/:id/deactivate", authz.DeactivatePolicy)
+		policyGroup.DELETE("/:tenantId/:id", authz.DeletePolicy)
 
 		// Tenant provisioning API (PRD §6). Platform-operator-facing;
 		// finer-grained RBAC gating arrives with the ACL/ABAC build stage.
 		tenantsGroup := authed.Group("/tenants")
-		tenantsGroup.POST("", tenants.Create)
 		tenantsGroup.POST("/:id/suspend", tenants.Suspend)
 		tenantsGroup.POST("/:id/reactivate", tenants.Reactivate)
+		tenantsGroup.POST("/:id/activate", tenants.Activate)
 		tenantsGroup.DELETE("/:id", tenants.Delete)
+
+		// Team management (nested under tenant, PRD §9)
+		teamsGroup := authed.Group("/teams")
+		teamsGroup.POST("", teams.Create)
+		teamsGroup.GET("", teams.List)
+		teamsGroup.GET("/:id", teams.Get)
+		teamsGroup.POST("/:id/members", teams.AddMember)
+		teamsGroup.GET("/:id/members", teams.ListMembers)
+		teamsGroup.GET("/:id/members/:userId", teams.GetMember)
+		teamsGroup.PATCH("/:id/members/:userId", teams.UpdateMember)
+		teamsGroup.DELETE("/:id/members/:userId", teams.RemoveMember)
 	}
 
 	return r

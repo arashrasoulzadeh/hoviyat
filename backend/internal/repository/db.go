@@ -14,5 +14,12 @@ func NewDB(dsn string) (*gorm.DB, error) {
 // golang-migrate takes over as the schema evolves (see
 // docs/TECHNICAL_DESIGN.md); AutoMigrate is a stopgap until then.
 func AutoMigrate(db *gorm.DB) error {
-	return db.AutoMigrate(&userModel{}, &tenantModel{}, &membershipModel{})
+	return db.AutoMigrate(
+		&userModel{}, &tenantModel{}, &membershipModel{}, &teamModel{}, &teamMembershipModel{},
+		&aclModel{}, &rolePermissionModel{}, &permissionModel{}, &policyModel{},
+		&oauth2ProviderModel{}, &oauth2StateModel{}, &samlProviderModel{},
+		&mfaMethodModel{}, &webAuthnCredentialModel{}, &magicLinkModel{},
+		&passwordPolicyModel{}, &failedLoginAttemptModel{}, &passwordResetTokenModel{},
+		&emailVerificationTokenModel{},
+	)
 }
